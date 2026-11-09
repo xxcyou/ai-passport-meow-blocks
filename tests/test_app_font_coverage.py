@@ -4,7 +4,9 @@
 This is the repeatable coverage check required by the Chinese-font checklist: it
 reads the UI copy out of ``main/app/app_strings.h``, decodes the actual cmap of
 the generated ``assets/fonts/app_cjk_*.c`` files, and fails when a code point is
-missing. It also runs a negative case, so the check cannot pass vacuously.
+missing. A mapped code point is not enough -- an all-zero bitmap renders as a
+blank glyph -- so every glyph's pixels are checked as well. It also runs a
+negative case, so the check cannot pass vacuously.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ CMAP_RE = re.compile(
     re.S,
 )
 HEX_RE = re.compile(r"0x([0-9A-Fa-f]{1,6})")
+GLYPH_BLOCK_RE = re.compile(r"/\* U\+([0-9A-Fa-f]{4,6})[^*]*\*/")
 
 
 def ui_codepoints() -> set[int]:
@@ -57,6 +60,22 @@ def font_codepoints(path: Path) -> set[int]:
     return found
 
 
+def glyph_bitmaps(path: Path) -> dict[int, tuple[int, bool]]:
+    """Code point -> (byte count, has any non-zero pixel byte)."""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"glyph_bitmap\[\]\s*=\s*\{(.*?)\n\};", text, re.S)
+    if not match:
+        return {}
+    body = match.group(1)
+    parts = GLYPH_BLOCK_RE.split(body)
+    glyphs: dict[int, tuple[int, bool]] = {}
+    for index in range(1, len(parts), 2):
+        codepoint = int(parts[index], 16)
+        data = [int(value, 16) for value in HEX_RE.findall(parts[index + 1])]
+        glyphs[codepoint] = (len(data), any(byte != 0 for byte in data))
+    return glyphs
+
+
 def main() -> int:
     wanted = ui_codepoints()
     assert wanted, "no CJK characters found in the UI copy"
@@ -76,7 +95,17 @@ def main() -> int:
             for cp in missing:
                 print(f"  U+{cp:04X} {chr(cp)!r}", file=sys.stderr)
         else:
-            print(f"app_cjk_{size}: {len(wanted)} UI code points covered")
+            bitmaps = glyph_bitmaps(path)
+            blank = sorted(cp for cp in wanted if cp in bitmaps and not bitmaps[cp][1])
+            unmapped = sorted(cp for cp in wanted if cp not in bitmaps)
+            if blank or unmapped:
+                failed = True
+                for cp in unmapped:
+                    print(f"FAIL: app_cjk_{size} has no bitmap for U+{cp:04X}", file=sys.stderr)
+                for cp in blank:
+                    print(f"FAIL: app_cjk_{size} renders a blank glyph for U+{cp:04X}", file=sys.stderr)
+            else:
+                print(f"app_cjk_{size}: {len(wanted)} UI code points covered, bitmaps non-empty")
 
     # Negative case: a character that is intentionally absent must be reported,
     # otherwise this test could pass without reading the font at all.
