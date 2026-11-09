@@ -33,6 +33,15 @@ run_static_checks() {
         -o "${test_dir}/test_demo_navigation"
     "${test_dir}/test_demo_navigation"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_merit_logic.c main/app/merit_logic.c \
+        -o "${test_dir}/test_merit_logic"
+    "${test_dir}/test_merit_logic"
+    # -lm:敲击音合成用到 sin/exp,主机侧必须显式链接数学库。
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_knock_synth.c main/app/knock_synth.c -lm \
+        -o "${test_dir}/test_knock_synth"
+    "${test_dir}/test_knock_synth"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_key_guard.c -o "${test_dir}/test_key_guard"
     "${test_dir}/test_key_guard"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
@@ -68,6 +77,7 @@ run_static_checks() {
             -o "${test_dir}/test_demo_${demo}_runtime"
         "${test_dir}/test_demo_${demo}_runtime"
     done
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_app_font_coverage.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_battery_profile.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_deep_sleep_contract.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_key_wake_contract.py

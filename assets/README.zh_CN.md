@@ -15,6 +15,21 @@
 - 添加字库前评估 Flash 与内部 RAM 影响；ESP32-C3 无 PSRAM。
 - 不提交许可不允许分发的字库。
 
+### 功德木鱼界面子集（`fonts/app_cjk_16.c`、`fonts/app_cjk_24.c`）
+
+| 项目 | 内容 |
+| --- | --- |
+| 源字库 | `DroidSansFallbackFull.ttf`（Droid Sans Fallback，4,033,420 字节），Apache License 2.0，Debian/Ubuntu 由 `fonts-droid-fallback` 包提供 |
+| 源文件 SHA-256 | `acb6440a713d880a13a21b468ba7cd43f5a2b2934972e51be791c880730777b8` |
+| 生成文件 | `fonts/app_cjk_16.c`（符号 `app_cjk_16`）、`fonts/app_cjk_24.c`（符号 `app_cjk_24`） |
+| 转换工具 | `lv_font_conv` 1.5.2（`npm install -g lv_font_conv@1.5.2`），LVGL 9 输出，4bpp，不压缩 |
+| 字符清单 | `main/app/app_strings.h` 用到的 35 个非 ASCII 码点；ASCII 由 LVGL 内置 Montserrat 经 fallback 链提供 |
+| 生成命令 | `python3 tools/gen_app_fonts.py`（`--check` 只校验不写文件） |
+| 覆盖测试 | `python3 tests/test_app_font_coverage.py` 解码生成字库的 cmap，任一界面码点缺失即失败 |
+
+源 TTF 不入库：它是 4MB 的系统字库，子集文件加上固定版本的转换工具与哈希已足以复现结果。
+Droid Sans Fallback 不含拉丁字形，因此 ASCII 刻意走 Montserrat 回退，而不是向该字库索取。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。

@@ -24,9 +24,16 @@ CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_DEF_REFR_PERIOD=20
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
+# 功德木鱼应用使用:16px 正文字体回退、24px 标题回退、48px 功德数字。
+# 中文字形由 assets/fonts/app_cjk_*.c 提供,这三个尺寸只负责 ASCII 与数字。
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+# 缺字时保留占位方框:开发期宁可看见方框,也不要"文字凭空消失"。
+CONFIG_LV_USE_FONT_PLACEHOLDER=y
 # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
-# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
-CONFIG_LV_MEM_SIZE_KILOBYTES=24
+# 本 demo UI 简单,24KB 足够;功德木鱼有 2 个页面 + 光晕/浮字动画,留到 32KB。
+CONFIG_LV_MEM_SIZE_KILOBYTES=32
 
 # --- 系统 ---
 CONFIG_FREERTOS_HZ=1000

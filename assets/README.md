@@ -17,6 +17,24 @@ Store reusable font files and generated font sources in `fonts/`.
 - Check Flash and internal-RAM impact before adding a font; the ESP32-C3 has no PSRAM.
 - Do not commit fonts whose license does not permit redistribution.
 
+### Wooden-fish UI subsets (`fonts/app_cjk_16.c`, `fonts/app_cjk_24.c`)
+
+| Item | Value |
+| --- | --- |
+| Source font | `DroidSansFallbackFull.ttf` (Droid Sans Fallback, 4,033,420 bytes), Apache License 2.0, shipped by Debian/Ubuntu as `fonts-droid-fallback` |
+| Source SHA-256 | `acb6440a713d880a13a21b468ba7cd43f5a2b2934972e51be791c880730777b8` |
+| Generated files | `fonts/app_cjk_16.c` (`app_cjk_16`), `fonts/app_cjk_24.c` (`app_cjk_24`) |
+| Converter | `lv_font_conv` 1.5.2 (`npm install -g lv_font_conv@1.5.2`), LVGL 9 output, 4 bpp, no compression |
+| Character inventory | The 35 non-ASCII code points used by `main/app/app_strings.h`; ASCII is served by LVGL's built-in Montserrat through the fallback chain |
+| Generator | `python3 tools/gen_app_fonts.py` (`--check` verifies without writing) |
+| Coverage test | `python3 tests/test_app_font_coverage.py` decodes the generated cmap and fails on any missing UI code point |
+
+The source TTF is not committed: it is a 4 MB system font, and the subset files
+plus the pinned converter and hash make the output reproducible. Droid Sans
+Fallback contains no Latin glyphs, which is why ASCII deliberately falls back to
+Montserrat instead of being requested from this font.
+
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.
