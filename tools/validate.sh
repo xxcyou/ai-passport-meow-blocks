@@ -36,6 +36,16 @@ run_static_checks() {
         tests/test_merit_logic.c main/app/merit_logic.c \
         -o "${test_dir}/test_merit_logic"
     "${test_dir}/test_merit_logic"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_pmkid_logic.c main/app/pmkid_logic.c \
+        -o "${test_dir}/test_pmkid_logic"
+    "${test_dir}/test_pmkid_logic"
+    # 猫猫方块:规则模型 + 80 关唯一解独立复算。求解器是纯计算,给 -O2 让
+    # 全量枚举在秒级跑完(默认 -O0 会让 14x14 的唯一性证明拖到分钟级)。
+    "${CC:-cc}" -std=c11 -O2 -Wall -Wextra -Werror -Imain \
+        tests/test_catcube_logic.c main/app/catcube_logic.c main/app/catcube_levels_data.c main/app/catcube_levels_extra.c \
+        -o "${test_dir}/test_catcube_logic"
+    "${test_dir}/test_catcube_logic"
     # -lm:敲击音合成用到 sin/exp,主机侧必须显式链接数学库。
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_knock_synth.c main/app/knock_synth.c -lm \

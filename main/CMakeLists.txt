@@ -11,15 +11,16 @@ idf_component_register(
          "demo_wifi.c"
          "demo_ble.c"
          "demo_low_power.c"
-         "app/merit_logic.c"
-         "app/knock_synth.c"
          "app/app_fonts.c"
-         "app/merit_store.c"
-         "app/wooden_fish_audio.c"
-         "app/wooden_fish_ui.c"
-         "app/wooden_fish.c"
+         "app/catcube_logic.c"
+         "app/catcube_levels.c"
+         "app/catcube_levels_data.c"
+         "app/catcube_levels_extra.c"
+         "app/catcube_audio.c"
+         "app/catcube_ui.c"
+         "app/catcube.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp bt esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
+    REQUIRES bsp bt esp_event esp_hw_support esp_http_server esp_netif esp_timer esp_wifi nvs_flash
 )
 
 # 生成的 CJK 子集字库。由 tools/gen_app_fonts.py 生成,不要手改。

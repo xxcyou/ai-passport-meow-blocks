@@ -1,12 +1,12 @@
-// main/main.c —— 功德木鱼应用入口:硬件装配 + 按键接线。
+// main/main.c —— 喵喵方块应用入口:硬件装配 + 按键接线。
 //
-// 启动顺序:共享 I2C → 显示 → LVGL → 背光 → 电量计 → 应用(界面/音频/NVS)
+// 启动顺序:共享 I2C → 显示 → LVGL → 背光 → 电量计 → 应用(进度存档/界面/输入任务)
 // → 按键驱动。按键回调留在本文件:它是"硬件事件 → 应用事件"的接线处,
 // 唤醒键守卫也在这里(见 on_key)。
 //
-// 显示或 LVGL 起不来就没有 UI 可言,直接报错返回;电量计、音频属于可选外设,
-// 单项失败只降级,不影响敲木鱼本身。
-#include "app/wooden_fish.h"
+// 显示或 LVGL 起不来就没有 UI 可言,直接报错返回;电量计属于可选外设,
+// 单项失败只降级,不影响解谜本身。
+#include "app/catcube.h"
 
 #include "bsp_battery.h"
 #include "bsp_button.h"
@@ -42,11 +42,11 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
         return;
     }
     if (!s_input_ready) return;
-    (void)wooden_fish_handle_button(btn, ev);
+    (void)catcube_handle_button(btn, ev);
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "功德木鱼启动(FoloToy AI Passport)");
+    ESP_LOGI(TAG, "喵喵方块启动(FoloToy AI Passport)");
 
     const uint32_t wake_causes = esp_sleep_get_wakeup_causes();
     if (wake_causes & ~(1u << ESP_SLEEP_WAKEUP_UNDEFINED)) {
@@ -73,7 +73,7 @@ void app_main(void) {
         ESP_LOGW(TAG, "电量计不可用,界面显示 %s", "--");
     }
 
-    esp_err_t err = wooden_fish_start();
+    esp_err_t err = catcube_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "应用启动失败: %s", esp_err_to_name(err));
         return;
@@ -81,7 +81,7 @@ void app_main(void) {
 
     err = bsp_button_init(on_key, NULL);
     if (err != ESP_OK) {
-        // 没有按键就没有交互,但屏幕与计数仍然在:明确记日志,不假装成功。
+        // 没有按键就玩不了,但棋盘仍在:明确记日志,不假装成功。
         ESP_LOGE(TAG, "按键初始化失败: %s", esp_err_to_name(err));
         return;
     }
