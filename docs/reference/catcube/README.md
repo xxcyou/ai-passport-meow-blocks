@@ -32,9 +32,15 @@ The device has three buttons: `UP`, `DOWN`, `OK` (short, double, long).
 | `UP` | Move the cursor right one column; from the last column it wraps to the left |
 | Hold `DOWN` / `UP` | Fast repeat after 300 ms (one step per 90 ms) |
 | `OK` short | Toggle an "excluded" cross on the cursor cell; press again to clear |
+| Double `UP` / `DOWN` | Step the cursor one cell back (left / up), so both directions work without a fourth button |
 | `OK` double | Confirm the cursor cell is a cat; double again to take it back |
+| Any key while the screen is off | Wake the device; that press does nothing else |
 | `OK` long | Open the menu. It has two pages: main (resume, restart, hint, settings, rules, level list) and settings (auto-exclude, volume, mute, reset progress, back). The clock and any level time limit pause while a menu, the volume page or the tutorial is open. |
 | `UP` / `DOWN` in the volume page | Volume +10 / -10 (long `OK` goes back to the menu) |
+
+Excluding the last open cell of a color region that has no cat yet shows a
+short warning — that region would be left with nowhere to put its cat, so the
+level could no longer be finished.
 
 Crosses are notes. Confirming is the commitment: a confirmed cell that is not a
 cat leaves a **permanent red cross** on that cell (it cannot be cancelled or
@@ -60,6 +66,11 @@ The play screen shows the level number, two hearts, the battery percentage in
 the top-right corner, and a second line with the board size, the found/target
 counter and the timer (remaining time on timed levels, red in the last 30 s).
 
+The settings page also sets idle standby: after 1, 3, 5 or 10 minutes without a
+key press the backlight turns off, and any key turns it back on without moving
+the cursor. Standby is off by default and pauses the level clock while the
+screen is dark.
+
 Levels from 150 on are timed: 400 s up to level 199, 300 s up to 249, 240 s up
 to 299 and 200 s beyond. Running out of time ends the level the same way as
 running out of hearts.
@@ -75,7 +86,10 @@ retry.
 
 - **Level list** — only cleared levels and the current one are listed; levels
   beyond the current one are not shown at all. Cleared levels are green, the
-  current one blue-grey, and the selection has an amber frame.
+  current one blue-grey, and the selection has an amber frame. Each cleared cell
+  also shows its best star rating as a three-segment bar under the level number
+  (a half-lit segment is a half star), so replaying a level for a better score
+  is visible at a glance.
 - **Play** — level number, hearts, timer, board size, found/target, the
   self-drawn board, and a two-line control hint.
 - **Tutorial** — levels 1-5 open with an illustrated rule card: three 4x4 mini

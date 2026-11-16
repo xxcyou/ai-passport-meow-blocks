@@ -116,7 +116,7 @@ typedef enum { WIN_IDLE = 0, WIN_SCALE, WIN_ROTATE, WIN_BAR, WIN_DONE } win_phas
 
 #define MENU_ITEMS 6 // 一页最多 6 行(两级菜单共用这 6 个行对象)
 #define MENU_MAIN_ITEMS 6
-#define MENU_SET_ITEMS  5
+#define MENU_SET_ITEMS  6
 #define WIN_ITEMS  2
 
 typedef struct {
@@ -175,6 +175,7 @@ typedef struct {
     int sweep_r;
     int sweep_c;
     bool sweep_active;
+    uint32_t toast_ms; // 底部提示气泡的剩余显示时间
 
     uint32_t level_serial;
     win_phase_t win_phase;
@@ -337,6 +338,24 @@ static void draw_number(lv_layer_t *layer, int x, int y, int w, int h, int value
     }
 }
 
+// 关卡格子底部的三星条:每颗星 2 个半星,半星画成左半段亮。
+static void draw_star_bar(lv_layer_t *layer, int x, int y, int w, int half_stars) {
+    const int seg_gap = 1;
+    const int seg_w = (w - 2 * seg_gap) / 3;
+    const int h = 3;
+    if (seg_w <= 0) return;
+    for (int i = 0; i < 3; i++) {
+        const int half = half_stars - i * 2;
+        const int sx = x + i * (seg_w + seg_gap);
+        fill_rect(layer, sx, y, seg_w, h, 0x1B2A30u, 1, LV_OPA_70);
+        if (half >= 2) {
+            fill_rect(layer, sx, y, seg_w, h, CLR_STAR, 1, LV_OPA_COVER);
+        } else if (half == 1) {
+            fill_rect(layer, sx, y, (seg_w + 1) / 2, h, CLR_STAR, 1, LV_OPA_COVER);
+        }
+    }
+}
+
 static void draw_mmss(lv_layer_t *layer, int x, int y, int w, int h, uint32_t ms,
                       const lv_font_t *font, uint32_t color, lv_text_align_t align) {
     const uint32_t total_s = ms / 1000u;
@@ -381,8 +400,16 @@ static void levels_draw_cb(lv_event_t *e) {
         const bool cleared = ui_is_cleared(level);
         const uint32_t fill = cleared ? CLR_CLEARED : CLR_UNLOCKED;
         fill_rect(layer, x, y, LEVEL_CELL, LEVEL_CELL, fill, 3, LV_OPA_COVER);
-        draw_number(layer, x, y, LEVEL_CELL, LEVEL_CELL, level, font, 0xFFFFFFu,
-                    LV_TEXT_ALIGN_CENTER);
+        // 通关的关:数字上移一点,底部画三星条,星级一眼可见
+        const int half = s_ui.hooks && s_ui.hooks->stars_get ? s_ui.hooks->stars_get(level) : 0;
+        if (cleared && half > 0) {
+            draw_number(layer, x, y - 3, LEVEL_CELL, LEVEL_CELL, level, font, 0xFFFFFFu,
+                        LV_TEXT_ALIGN_CENTER);
+            draw_star_bar(layer, x + 2, y + LEVEL_CELL - 6, LEVEL_CELL - 4, half);
+        } else {
+            draw_number(layer, x, y, LEVEL_CELL, LEVEL_CELL, level, font, 0xFFFFFFu,
+                        LV_TEXT_ALIGN_CENTER);
+        }
         if (level == s_ui.sel) {
             stroke_rect(layer, x - 1, y - 1, LEVEL_CELL + 2, LEVEL_CELL + 2, CLR_ACCENT, 2, 4);
         }
@@ -929,7 +956,8 @@ static void menu_set_page(int page) {
         CAT_MENU_LIST,
     };
     static const char *const set_texts[MENU_SET_ITEMS] = {
-        CAT_MENU_AUTO_ON, CAT_MENU_VOLUME, CAT_MENU_MUTE_OFF, CAT_MENU_RESET, CAT_MENU_BACK,
+        CAT_MENU_AUTO_ON, CAT_MENU_VOLUME, CAT_MENU_MUTE_OFF, CAT_MENU_STANDBY_OFF,
+        CAT_MENU_RESET,   CAT_MENU_BACK,
     };
     ui->menu_page = page;
     ui->menu_sel = 0;
@@ -965,7 +993,18 @@ static void overlay_show(cat_overlay_t which) {
                 lv_label_set_text(ui->menu_label[2], muted ? CAT_MENU_MUTE_ON : CAT_MENU_MUTE_OFF);
             }
             if (ui->menu_label[3]) {
-                lv_label_set_text(ui->menu_label[3],
+                const int minutes =
+                    ui->hooks && ui->hooks->standby_get ? ui->hooks->standby_get() : 0;
+                if (minutes > 0) {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), CAT_MENU_STANDBY_FMT, minutes);
+                    lv_label_set_text(ui->menu_label[3], buf);
+                } else {
+                    lv_label_set_text(ui->menu_label[3], CAT_MENU_STANDBY_OFF);
+                }
+            }
+            if (ui->menu_label[4]) {
+                lv_label_set_text(ui->menu_label[4],
                                   ui->reset_armed ? CAT_MENU_RESET_ARM : CAT_MENU_RESET);
             }
         }
@@ -1049,12 +1088,15 @@ void catcube_ui_show_play(int level) {
 
 static void start_win(void) {
     cat_ui_t *ui = &s_ui;
-    if (ui->hooks && ui->hooks->mark_cleared) ui->hooks->mark_cleared(ui->level);
     ui->win_phase = WIN_SCALE;
     ui->win_ms = 0;
     ui->win_bar = 0;
     ui->final_ms = ui->clock_ms;
     ui->win_stars = catcube_stars_half(&ui->st, ui->final_ms);
+    // 星级随通关一起落盘:选关界面按最好成绩显示
+    if (ui->hooks && ui->hooks->mark_cleared) {
+        ui->hooks->mark_cleared(ui->level, ui->win_stars);
+    }
     lv_obj_invalidate(ui->pl_board);
 }
 
@@ -1076,7 +1118,7 @@ bool catcube_ui_clock_running(void) {
 
 bool catcube_ui_anim_active(void) {
     const win_phase_t p = s_ui.win_phase;
-    if (s_ui.shake_ms > 0 || s_ui.sweep_active) return true;
+    if (s_ui.shake_ms > 0 || s_ui.sweep_active || s_ui.toast_ms > 0) return true;
     return p == WIN_SCALE || p == WIN_ROTATE || p == WIN_BAR;
 }
 
@@ -1092,6 +1134,13 @@ void catcube_ui_tick_anim(uint32_t dt_ms) {
         ui->sweep_ms += dt_ms;
         if (ui->sweep_ms > 600u) ui->sweep_active = false;
         lv_obj_invalidate(ui->pl_board);
+    }
+    if (ui->toast_ms > 0) {
+        ui->toast_ms = (ui->toast_ms > dt_ms) ? ui->toast_ms - dt_ms : 0;
+        if (ui->toast_ms == 0) {
+            lv_label_set_text(ui->pl_hint, CAT_HINT_MOVE "\n" CAT_HINT_MARK);
+            lv_obj_set_style_text_color(ui->pl_hint, lv_color_hex(CLR_TEXT), 0);
+        }
     }
 
     if (ui->win_phase == WIN_IDLE || ui->win_phase == WIN_DONE) return;
@@ -1167,13 +1216,22 @@ void catcube_ui_set_clock(uint32_t elapsed_ms, uint32_t limit_ms) {
 static void key_levels(bsp_btn_t btn, bsp_btn_ev_t ev) {
     cat_ui_t *ui = &s_ui;
     const int visible = ui_highest_unlocked();
-    if (ev == BSP_BTN_PRESS) {
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE) &&
+        (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        const int step = (ev == BSP_BTN_CLICK) ? 1 : -1;
         if (btn == BSP_BTN_UP) {
-            if (ui->sel % LEVEL_COLS == 0 && ui->sel > 1) ui->sel += LEVEL_COLS - 1;
-            else ui->sel += 1;
+            if (step > 0) {
+                if (ui->sel % LEVEL_COLS == 0 && ui->sel > 1) ui->sel += LEVEL_COLS - 1;
+                else ui->sel += 1;
+            } else {
+                if (ui->sel % LEVEL_COLS == 1 || ui->sel == 1) ui->sel -= LEVEL_COLS - 1;
+                else ui->sel -= 1;
+            }
+            if (ui->sel < 1) ui->sel = visible;
             if (ui->sel > visible) ui->sel = 1;
-        } else if (btn == BSP_BTN_DOWN) {
-            ui->sel += LEVEL_COLS;
+        } else {
+            ui->sel += LEVEL_COLS * step;
+            if (ui->sel < 1) ui->sel = 1 + (ui->sel - 1 + LEVEL_PAGE_SIZE) % LEVEL_COLS;
             if (ui->sel > visible) ui->sel = 1 + (ui->sel - 1) % LEVEL_COLS;
         }
         refresh_levels();
@@ -1189,16 +1247,14 @@ static void key_menu(bsp_btn_t btn, bsp_btn_ev_t ev) {
     cat_ui_t *ui = &s_ui;
     const int count = (ui->menu_page == 0) ? MENU_MAIN_ITEMS : MENU_SET_ITEMS;
 
-    if (ev == BSP_BTN_PRESS) {
-        if (btn == BSP_BTN_UP) {
-            ui->menu_sel = (ui->menu_sel + count - 1) % count;
-            ui->reset_armed = false;
-            overlay_show(OV_MENU);
-        } else if (btn == BSP_BTN_DOWN) {
-            ui->menu_sel = (ui->menu_sel + 1) % count;
-            ui->reset_armed = false;
-            overlay_show(OV_MENU);
-        }
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE) &&
+        (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        // 单击:上=上一项/下=下一项;双击反向
+        const int step = (ev == BSP_BTN_CLICK) ? 1 : -1;
+        const int dir = (btn == BSP_BTN_UP) ? -1 : 1;
+        ui->menu_sel = ((ui->menu_sel + dir * step) % count + count) % count;
+        ui->reset_armed = false;
+        overlay_show(OV_MENU);
         return;
     }
     if (ev == BSP_BTN_LONG && btn == BSP_BTN_OK) {
@@ -1255,7 +1311,21 @@ static void key_menu(bsp_btn_t btn, bsp_btn_ev_t ev) {
             }
             overlay_show(OV_MENU);
             return;
-        case 3: // 重置进度(二次确认)
+        case 3: { // 待机时长:关闭 / 1 / 3 / 5 / 10 分钟 循环
+            static const int kOptions[] = {0, 1, 3, 5, 10};
+            const int cur = ui->hooks && ui->hooks->standby_get ? ui->hooks->standby_get() : 0;
+            int next = kOptions[0];
+            for (unsigned i = 0; i < sizeof(kOptions) / sizeof(kOptions[0]); i++) {
+                if (kOptions[i] == cur) {
+                    next = kOptions[(i + 1) % (sizeof(kOptions) / sizeof(kOptions[0]))];
+                    break;
+                }
+            }
+            if (ui->hooks && ui->hooks->standby_set) ui->hooks->standby_set(next);
+            overlay_show(OV_MENU);
+            return;
+        }
+        case 4: // 重置进度(二次确认)
             if (!ui->reset_armed) {
                 ui->reset_armed = true;
                 overlay_show(OV_MENU);
@@ -1277,11 +1347,10 @@ static void key_menu(bsp_btn_t btn, bsp_btn_ev_t ev) {
 static void key_win(bsp_btn_t btn, bsp_btn_ev_t ev) {
     cat_ui_t *ui = &s_ui;
     if (ui->win_phase != WIN_DONE) return; // 演出期间不接受输入
-    if (ev == BSP_BTN_PRESS) {
-        if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) {
-            ui->win_sel = (ui->win_sel + 1) % WIN_ITEMS;
-            overlay_show(OV_WIN);
-        }
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE) &&
+        (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        ui->win_sel = (ui->win_sel + 1) % WIN_ITEMS;
+        overlay_show(OV_WIN);
     } else if (ev == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
         if (ui->win_sel == 0) catcube_ui_show_play(ui->level + 1);
         else catcube_ui_show_play(ui->level);
@@ -1290,11 +1359,10 @@ static void key_win(bsp_btn_t btn, bsp_btn_ev_t ev) {
 
 static void key_fail(bsp_btn_t btn, bsp_btn_ev_t ev) {
     cat_ui_t *ui = &s_ui;
-    if (ev == BSP_BTN_PRESS) {
-        if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) {
-            ui->win_sel = (ui->win_sel + 1) % WIN_ITEMS;
-            overlay_show(OV_FAIL);
-        }
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE) &&
+        (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        ui->win_sel = (ui->win_sel + 1) % WIN_ITEMS;
+        overlay_show(OV_FAIL);
     } else if (ev == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
         if (ui->win_sel == 0) catcube_ui_show_play(ui->level);
         else catcube_ui_show_levels();
@@ -1309,21 +1377,34 @@ static void key_play(bsp_btn_t btn, bsp_btn_ev_t ev) {
         return;
     }
 
-    if (ev == BSP_BTN_PRESS) {
+    // 方向:单击前进一步,双击后退一步(上键 = 左右,下键 = 上下,都会绕回)
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE) &&
+        (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        const int step = (ev == BSP_BTN_CLICK) ? 1 : -1;
         if (btn == BSP_BTN_UP) {
-            catcube_move(&ui->st, 0, 1);
-            cat_audio_play(CAT_SND_MOVE, 0);
-        } else if (btn == BSP_BTN_DOWN) {
-            catcube_move(&ui->st, 1, 0);
-            cat_audio_play(CAT_SND_MOVE, 0);
+            catcube_move(&ui->st, 0, step);
+        } else {
+            catcube_move(&ui->st, step, 0);
         }
+        cat_audio_play(CAT_SND_MOVE, 0);
         refresh_play();
         return;
     }
+
     if (ev == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
+        const uint8_t cr = (uint8_t)(catcube_cursor(&ui->st) / ui->st.level->w);
+        const uint8_t cc = (uint8_t)(catcube_cursor(&ui->st) % ui->st.level->w);
+        const uint8_t region = catcube_region_at(&ui->st, cr, cc);
         catcube_toggle_x(&ui->st);
         cat_audio_play(CAT_SND_X, 0);
         refresh_play();
+        // 把某个色块排空、但里面还没有猫 —— 这一块必然缺一只猫,提醒一下
+        if (catcube_region_exhausted(&ui->st, region)) {
+            lv_label_set_text(ui->pl_hint, CAT_TOAST_REGION);
+            lv_obj_set_style_text_color(ui->pl_hint, lv_color_hex(CLR_DANGER), 0);
+            ui->toast_ms = 1500;
+            cat_audio_play(CAT_SND_WRONG, 0);
+        }
         return;
     }
     if (ev == BSP_BTN_LONG && btn == BSP_BTN_OK) {
@@ -1340,7 +1421,6 @@ static void key_play(bsp_btn_t btn, bsp_btn_ev_t ev) {
                 ui->sweep_active = true;
                 ui->sweep_r = (int)(catcube_cursor(&ui->st) / ui->st.level->w);
                 ui->sweep_c = (int)(catcube_cursor(&ui->st) % ui->st.level->w);
-                // 统计新增的自动排除格数
                 int swept = 0;
                 const int cells = ui->st.level->w * ui->st.level->h;
                 for (int i = 0; i < cells; i++) {
@@ -1364,13 +1444,12 @@ static void key_play(bsp_btn_t btn, bsp_btn_ev_t ev) {
             case CATCUBE_ACT_WRONG:
                 cat_audio_play(CAT_SND_WRONG, 0);
                 ui->shake_idx = (int)catcube_cursor(&ui->st);
-                ui->shake_ms = 320; // 抖 8 帧
+                ui->shake_ms = 320;
                 refresh_play();
                 if (catcube_failed(&ui->st)) show_fail();
                 break;
             case CATCUBE_ACT_BLOCKED:
             case CATCUBE_ACT_LIMIT:
-                // 规则不允许:短促提示音,不扣命、不改棋盘
                 cat_audio_play(CAT_SND_WRONG, 0);
                 refresh_play();
                 break;
@@ -1384,9 +1463,11 @@ static void key_play(bsp_btn_t btn, bsp_btn_ev_t ev) {
 
 static void key_volume(bsp_btn_t btn, bsp_btn_ev_t ev) {
     cat_ui_t *ui = &s_ui;
-    if (ev == BSP_BTN_PRESS && (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE) &&
+        (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
         int vol = ui->hooks && ui->hooks->volume_get ? ui->hooks->volume_get() : 0;
-        vol += (btn == BSP_BTN_UP) ? 10 : -10;
+        const int step = (ev == BSP_BTN_CLICK) ? 10 : -10;
+        vol += (btn == BSP_BTN_UP) ? step : -step;
         if (vol < 0) vol = 0;
         if (vol > 100) vol = 100;
         if (ui->hooks && ui->hooks->volume_set) ui->hooks->volume_set(vol);

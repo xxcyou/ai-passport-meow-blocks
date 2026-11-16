@@ -87,6 +87,13 @@ catcube_mark_t catcube_mark_rc(const catcube_state_t *st, uint8_t row, uint8_t c
 bool catcube_mark_is_auto(const catcube_state_t *st, uint8_t idx);
 bool catcube_is_cat(const catcube_state_t *st, uint8_t idx);
 bool catcube_is_answer(const catcube_state_t *st, uint8_t idx);
+
+// 该色块是否已经有确认的猫。
+bool catcube_region_has_cat(const catcube_state_t *st, uint8_t region);
+
+// 该色块是否已经"死"了:还没有猫,而且每一格都被排除(叉或红叉)。
+// 出现这种情况说明玩家排过头了 —— UI 用它提示"这个颜色还没有找到猫"。
+bool catcube_region_exhausted(const catcube_state_t *st, uint8_t region);
 bool catcube_is_wrong(const catcube_state_t *st, uint8_t idx);
 
 uint8_t catcube_region_at(const catcube_state_t *st, uint8_t row, uint8_t col);

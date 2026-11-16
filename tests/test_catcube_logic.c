@@ -153,6 +153,38 @@ static void test_rule_functions(void) {
         CHECK(excluded == in_region, "同色块必须被整体排除(%d/%d)", excluded, in_region);
     }
 
+    // 色块排空检测(UI 用它提示"这个颜色还没有找到猫")
+    {
+        catcube_state_reset(&st, &SYN_LEVEL);
+        int region0_cells = 0;
+        int last_cell = -1;
+        for (int i = 0; i < 16; i++) {
+            if (SYN_CELLS[i] != 0) continue;
+            region0_cells++;
+            last_cell = i;
+        }
+        CHECK(region0_cells > 1, "色块 0 应有多格");
+        CHECK(!catcube_region_has_cat(&st, 0), "初始应没有猫");
+        CHECK(!catcube_region_exhausted(&st, 0), "初始不应算排空");
+        // 把除最后一格以外的所有格子都打叉
+        for (int i = 0; i < 16; i++) {
+            if (SYN_CELLS[i] != 0 || i == last_cell) continue;
+            catcube_cursor_set(&st, (uint8_t)(i / 4), (uint8_t)(i % 4));
+            catcube_toggle_x(&st);
+        }
+        CHECK(!catcube_region_exhausted(&st, 0), "还剩一格时不应算排空");
+        // 把最后一格也排掉 -> 该色块再也不可能放猫
+        catcube_cursor_set(&st, (uint8_t)(last_cell / 4), (uint8_t)(last_cell % 4));
+        catcube_toggle_x(&st);
+        CHECK(catcube_region_exhausted(&st, 0), "全部排掉应判定为排空");
+        // 有猫之后就不算排空
+        catcube_state_reset(&st, &SYN_LEVEL);
+        catcube_cursor_set(&st, 0, 0);
+        catcube_toggle_cat(&st);
+        CHECK(catcube_region_has_cat(&st, 0), "确认猫后该色块应有猫");
+        CHECK(!catcube_region_exhausted(&st, 0), "有猫的色块不算排空");
+    }
+
     // 星级:满血快速 = 3 星;掉一条命 = 少半星;拖太久再扣
     catcube_state_reset(&st, &SYN_LEVEL);
     CHECK(catcube_stars_half(&st, 5000) == 6, "满血快速应 3 星");

@@ -276,6 +276,29 @@ uint32_t catcube_time_limit_ms(int level) {
     return 200000u;
 }
 
+bool catcube_region_has_cat(const catcube_state_t *st, uint8_t region) {
+    if (!st || !st->level) return false;
+    const int cells = cells_of(st);
+    for (int i = 0; i < cells; i++) {
+        if (st->level->cells[i] != region) continue;
+        if (st->cat[i]) return true;
+    }
+    return false;
+}
+
+bool catcube_region_exhausted(const catcube_state_t *st, uint8_t region) {
+    if (!st || !st->level) return false;
+    if (catcube_region_has_cat(st, region)) return false;
+    const int cells = cells_of(st);
+    bool any = false;
+    for (int i = 0; i < cells; i++) {
+        if (st->level->cells[i] != region) continue;
+        any = true;
+        if (catcube_mark_at(st, (uint8_t)i) == CATCUBE_MARK_NONE) return false;
+    }
+    return any;
+}
+
 bool catcube_answer_valid(const catcube_level_def_t *level) {
     if (!level || !level->cells || !level->answer) return false;
     if (level->w == 0 || level->h == 0 || level->w > CATCUBE_MAX_SIDE ||

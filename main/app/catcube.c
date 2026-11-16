@@ -35,6 +35,8 @@ static const char *TAG = "catcube";
 #define CAT_NVS_NAMESPACE "catcube"
 #define CAT_NVS_KEY       "progress"
 #define CAT_NVS_AUDIO     "audio"
+#define CAT_NVS_POWER     "power"
+#define CAT_NVS_STARS     "stars"
 
 #define CAT_QUEUE_DEPTH   8
 #define CAT_TASK_STACK    4096
@@ -97,9 +99,19 @@ typedef struct {
     uint8_t muted;
 } cat_audio_cfg_t;
 static cat_audio_cfg_t s_audio_cfg = {.volume = 55, .muted = 0};
+
+// 待机:无操作多少分钟后关屏。0 = 关闭。
+// 每关最好星级(半星 1..6)。只存到"已通关"的范围,越往后通关再补。
+#define CAT_STARS_CAP 1024
+static uint8_t s_stars[CAT_STARS_CAP];
+
+static uint8_t s_standby_min;
+static bool s_standby;         // 当前是否处于关屏待机
+static int64_t s_last_input_us;
 static cat_progress_t s_progress;
 
 static void progress_save(void);
+static void stars_save(void);
 
 static void progress_load(void) {
     s_progress.magic = CAT_PROGRESS_MAGIC;
@@ -174,8 +186,37 @@ static void hook_muted_set(bool muted) {
     audio_cfg_save();
 }
 
+static void power_cfg_load(void) {
+    s_standby_min = 0;
+    if (!s_nvs_ok) return;
+    uint8_t minutes = 0;
+    size_t len = sizeof(minutes);
+    if (nvs_get_blob(s_nvs, CAT_NVS_POWER, &minutes, &len) == ESP_OK && len == sizeof(minutes) &&
+        minutes <= 60) {
+        s_standby_min = minutes;
+    }
+}
+
+static void power_cfg_save(void) {
+    if (!s_nvs_ok) return;
+    (void)nvs_set_blob(s_nvs, CAT_NVS_POWER, &s_standby_min, sizeof(s_standby_min));
+    (void)nvs_commit(s_nvs);
+}
+
+static int hook_standby_get(void) { return (int)s_standby_min; }
+
+static void hook_standby_set(int minutes) {
+    if (minutes < 0) minutes = 0;
+    if (minutes > 60) minutes = 60;
+    s_standby_min = (uint8_t)minutes;
+    power_cfg_save();
+    s_last_input_us = esp_timer_get_time(); // 改设置本身算一次操作
+}
+
 static void hook_reset_progress(void) {
     s_progress.cleared = 0;
+    memset(s_stars, 0, sizeof(s_stars));
+    stars_save();
     progress_save();
     ESP_LOGW(TAG, "进度已重置");
 }
@@ -187,6 +228,28 @@ static void progress_save(void) {
     if (err != ESP_OK) ESP_LOGW(TAG, "写入进度失败: %s", esp_err_to_name(err));
 }
 
+static void stars_load(void) {
+    memset(s_stars, 0, sizeof(s_stars));
+    if (!s_nvs_ok) return;
+    size_t len = 0;
+    if (nvs_get_blob(s_nvs, CAT_NVS_STARS, NULL, &len) != ESP_OK || len == 0) return;
+    if (len > sizeof(s_stars)) len = sizeof(s_stars);
+    (void)nvs_get_blob(s_nvs, CAT_NVS_STARS, s_stars, &len);
+}
+
+static void stars_save(void) {
+    if (!s_nvs_ok) return;
+    size_t len = s_progress.cleared;
+    if (len > sizeof(s_stars)) len = sizeof(s_stars);
+    (void)nvs_set_blob(s_nvs, CAT_NVS_STARS, s_stars, len);
+    (void)nvs_commit(s_nvs);
+}
+
+static int hook_stars_get(int level) {
+    if (level < 1 || level > CAT_STARS_CAP) return 0;
+    return (int)s_stars[level - 1];
+}
+
 static bool hook_is_cleared(int level) {
     if (level < 1) return false;
     return (uint32_t)level <= s_progress.cleared;
@@ -194,24 +257,36 @@ static bool hook_is_cleared(int level) {
 
 static int hook_highest_unlocked(void) { return (int)s_progress.cleared + 1; }
 
-static void hook_mark_cleared(int level) {
+static void hook_mark_cleared(int level, int half_stars) {
     if (level < 1) return;
+    if (half_stars < 1) half_stars = 1;
+    if (half_stars > 6) half_stars = 6;
+    bool dirty = false;
+    if (level <= CAT_STARS_CAP && (int)s_stars[level - 1] < half_stars) {
+        s_stars[level - 1] = (uint8_t)half_stars;
+        dirty = true;
+    }
     if ((uint32_t)level > s_progress.cleared) {
         s_progress.cleared = (uint32_t)level;
-        ESP_LOGI(TAG, "通关第 %d 关", level);
+        ESP_LOGI(TAG, "通关第 %d 关(%d 半星)", level, half_stars);
         progress_save();
+        dirty = true;
     }
+    if (dirty) stars_save();
 }
 
 static const catcube_ui_hooks_t HOOKS = {
     .is_cleared = hook_is_cleared,
     .highest_unlocked = hook_highest_unlocked,
     .mark_cleared = hook_mark_cleared,
+    .stars_get = hook_stars_get,
     .volume_get = hook_volume_get,
     .volume_set = hook_volume_set,
     .muted_get = hook_muted_get,
     .muted_set = hook_muted_set,
     .reset_progress = hook_reset_progress,
+    .standby_get = hook_standby_get,
+    .standby_set = hook_standby_set,
 };
 
 // ---------------------------------------------------------------------------
@@ -238,6 +313,7 @@ static void input_task(void *arg) {
     int64_t last_tick_us = esp_timer_get_time();
     int64_t level_start_us = esp_timer_get_time();
     uint32_t last_serial = 0;
+    s_last_input_us = esp_timer_get_time(); // 从"现在"开始算空闲,别一开机就待机
     for (;;) {
         const bool held = s_held_dir != 0;
         TickType_t wait = held ? pdMS_TO_TICKS(20) : pdMS_TO_TICKS(CAT_IDLE_POLL_MS);
@@ -252,13 +328,23 @@ static void input_task(void *arg) {
         if (xQueueReceive(s_queue, &msg, wait) == pdTRUE) {
             if (msg.kind != CAT_EV_KEY) continue;
             const int64_t now = esp_timer_get_time();
+            // 待机中:任意键只负责唤醒,不执行任何动作(避免"亮屏顺手走了一格")
+            if (s_standby) {
+                s_standby = false;
+                s_last_input_us = now;
+                bsp_display_backlight(90);
+                if (msg.ev == BSP_BTN_RELEASE) s_held_dir = 0;
+                continue;
+            }
+            s_last_input_us = now;
             switch (msg.ev) {
                 case BSP_BTN_PRESS:
                     if (msg.btn == BSP_BTN_UP || msg.btn == BSP_BTN_DOWN) {
+                        // 只记"按住了",移动交给 CLICK(单击)/DOUBLE(双击)/自动重复。
+                        // 这样一次双击不会先走两步再回退,手感不跳。
                         s_held_dir = (msg.btn == BSP_BTN_UP) ? 1 : 2;
                         s_held_since_us = now;
                         s_last_repeat_us = now;
-                        ui_dispatch(msg.btn, BSP_BTN_PRESS);
                     } else {
                         ui_dispatch(msg.btn, BSP_BTN_PRESS);
                     }
@@ -280,7 +366,8 @@ static void input_task(void *arg) {
                     ui_dispatch(msg.btn, BSP_BTN_CLICK);
                     break;
                 case BSP_BTN_DOUBLE:
-                    if (msg.btn == BSP_BTN_OK) ui_dispatch(msg.btn, BSP_BTN_DOUBLE);
+                    // 双击 OK = 确认猫;双击方向键 = 反向走一格。
+                    ui_dispatch(msg.btn, BSP_BTN_DOUBLE);
                     break;
                 default:
                     break;
@@ -288,10 +375,18 @@ static void input_task(void *arg) {
         }
 
         const int64_t now = esp_timer_get_time();
+        // 长时间无操作 -> 关屏待机(只关背光,LVGL 继续跑,唤醒即可用)
+        if (!s_standby && s_standby_min > 0 &&
+            now - s_last_input_us >= (int64_t)s_standby_min * 60LL * 1000000LL) {
+            s_standby = true;
+            bsp_display_backlight(0);
+            ESP_LOGI(TAG, "无操作 %u 分钟,进入待机", (unsigned)s_standby_min);
+        }
         if (s_held_dir != 0 && now - s_held_since_us >= CAT_HOLD_DELAY_US &&
             now - s_last_repeat_us >= CAT_HOLD_PERIOD_US) {
             s_last_repeat_us = now;
-            ui_dispatch(s_held_dir == 1 ? BSP_BTN_UP : BSP_BTN_DOWN, BSP_BTN_PRESS);
+            // 自动重复走 CLICK:单击=前进一步,双击=后退一步,重复自然就是"连续前进"
+            ui_dispatch(s_held_dir == 1 ? BSP_BTN_UP : BSP_BTN_DOWN, BSP_BTN_CLICK);
         }
 
         // 通关演出:每帧推进
@@ -321,6 +416,7 @@ static void input_task(void *arg) {
                 level = catcube_ui_current_level();
                 bsp_lvgl_unlock();
             }
+            if (s_standby) running = false; // 待机也暂停计时
             if (!running) {
                 // 冻结:把起点往后挪,elapsed 保持不变
                 level_start_us = now - (int64_t)s_elapsed_ms * 1000;
@@ -366,7 +462,9 @@ esp_err_t catcube_start(void) {
         ESP_LOGW(TAG, "NVS 不可用,进度不会保存:%s", esp_err_to_name(err));
     }
     progress_load();
+    stars_load();
     audio_cfg_load();
+    power_cfg_load();
 
     if (!bsp_lvgl_lock(1000)) {
         ESP_LOGE(TAG, "取 LVGL 锁失败,无法建立界面");

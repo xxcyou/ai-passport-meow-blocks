@@ -23,13 +23,17 @@ extern "C" {
 typedef struct {
     bool (*is_cleared)(int level);
     int (*highest_unlocked)(void); // 当前可玩的关号(= 已通关数 + 1)
-    void (*mark_cleared)(int level);
+    void (*mark_cleared)(int level, int half_stars); // 半星单位 1..6
+    int (*stars_get)(int level);                    // 该关最好成绩(半星),未通关返回 0
     // 音量/静音/重置进度:由应用层落 NVS,界面层只负责交互
     int (*volume_get)(void);
     void (*volume_set)(int percent);
     bool (*muted_get)(void);
     void (*muted_set)(bool muted);
     void (*reset_progress)(void);
+    // 待机:无操作多少分钟后关屏(0 = 关闭)
+    int (*standby_get)(void);
+    void (*standby_set)(int minutes);
 } catcube_ui_hooks_t;
 
 void catcube_ui_init(const catcube_ui_hooks_t *hooks);

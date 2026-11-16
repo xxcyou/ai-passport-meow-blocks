@@ -112,6 +112,8 @@
 #define CAT_MENU_VOLUME     "音量控制"
 #define CAT_MENU_MUTE_ON    "静音 开"
 #define CAT_MENU_MUTE_OFF   "静音 关"
+#define CAT_MENU_STANDBY_OFF "待机 关闭"
+#define CAT_MENU_STANDBY_FMT "待机 %d 分钟"
 #define CAT_MENU_RESET      "重置进度"
 #define CAT_MENU_RESET_ARM  "再按一次确认"
 #define CAT_VOL_TITLE       "音量"
@@ -128,6 +130,7 @@
 #define CAT_FAIL_LIVES      "爱心用完了 重来一次"
 #define CAT_FAIL_TIME       "时间到 重来一次"
 #define CAT_HINT_PLACED     "提示:已确认一只猫"
+#define CAT_TOAST_REGION    "这个颜色还没有找到猫"
 #define CAT_HINT_DONE       "已经找齐了"
 #define CAT_BATTERY_NA      "--"
 
